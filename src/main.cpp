@@ -9,6 +9,9 @@
 #include "TEMT6000_sensor.h"
 #include "Joystick.h"
 #include <SPIFFS.h>
+#include "WeatherFetcher.h"
+#include <WiFi.h>
+#include "secrets.h"
 
 // ========== Объекты ==========
 TFT_eSPI tft = TFT_eSPI(); 
@@ -17,22 +20,34 @@ DS3231_RTC rtc;
 BME280_sensor bme280;
 TEMT6000_sensor light;
 Joystick joy;
+WeatherFetcher weather;
 
 // ========== Пины ==========
 // Джойстик
 #define JOY_X 34
 #define JOY_Y 35
 #define JOY_SW 15
+
 // TEMT6000
 #define LIGHT_PIN 36
 
 // ========== Переменные для экрана и меню ==========
-int currentScreen = 0; // 0 - главный (часы+сводка), 1 - CO2+темп, 2 - давление, 3 - освещённость
-const int numScreens = 4;
+int currentScreen = 0; // 0 - главный (часы+сводка), 1 - CO2+темп, 2 - давление, 3 - освещённость, 4 - погода(API)
+const int numScreens = 5;
 unsigned long lastRTCupdate = 0;
 unsigned long lastSensorReadAll = 0;
 const unsigned long RTC_INTERVAL = 1000;
 const unsigned long SENSOR_INTERVAL = 2000;
+
+//api weather модуль
+unsigned long lastWeatherUpdate = 0;
+const unsigned long WEATHER_INTERVAL = 30 * 60 * 1000UL; // 30 минут
+bool weatherInitialized = false;
+
+//wifi
+bool wifiConnected = false;
+unsigned long wifiConnectStart = 0;
+const unsigned long WIFI_TIMEOUT = 10000;  // 10 секунд на попытку подключения
 
 // === Прототипы функций ===
 void initDisplay();
@@ -41,6 +56,7 @@ void drawScreen0(); // главный экран
 void drawScreen1(); // CO2 и климат от SCD40
 void drawScreen2(); // давление и температура BME280
 void drawScreen3(); // освещённость
+void drawScreen4(); // погода
 void drawBlock();
 
 
@@ -49,8 +65,12 @@ void drawBlock();
 void setup() {
   Serial.begin(115200);
   Serial.println("AegisDesk starting..."); 
-
+    
   initDisplay(); // инициализация дисплея
+
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    wifiConnectStart=millis();
+    wifiConnected = false;
 
     if (!SPIFFS.begin()) {
         Serial.println("SPIFFS mount failed!");
@@ -100,8 +120,12 @@ void loop() {
     // 1. Обновляем джойстик и обрабатываем нажатия (переключение экранов)
     joy.update();
     if (joy.justPressed()){
-        // нажатие на джойстик: вызывает дополнительное действие, например, обновить все датчики принудительно
-        // пока пропустим
+
+        // Принудительно обновить погоду, если текущий экран погоды
+        if (currentScreen == 4) {
+            weather.update();
+            drawScreen4();
+        }
     }
     int dir = joy.getDirection();
     if (dir == 3) {
@@ -115,6 +139,7 @@ void loop() {
         updateDisplay();
         delay(50);
     }
+
     // 2. Обновление RTC (каждую секунду)
     if (millis() - lastRTCupdate >= RTC_INTERVAL) {
         rtc.update();
@@ -142,7 +167,39 @@ void loop() {
         if (currentScreen == 0) drawScreen0();
     }
 
-  vTaskDelay(25/portTICK_PERIOD_MS);    // Небольшая задержка, чтобы не грузить процессор
+    // 5. Управление WiFi
+    if (!wifiConnected) {
+        if (WiFi.status() == WL_CONNECTED) {
+            wifiConnected = true;
+            Serial.println("Wifi Connected!");
+            // Теперь можно инициализировать погоду (если не была инициализирована)
+            if (!weatherInitialized) {
+                weather.init(CITY_NAME, OPENWEATHER_API_KEY);
+                weatherInitialized = true;
+            }
+        } else if (millis() - wifiConnectStart > WIFI_TIMEOUT) {
+            static unsigned long lastReconnectAttempt = 0;
+            if (millis() - lastReconnectAttempt > 30000) {
+                WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+                wifiConnectStart = millis();
+                lastReconnectAttempt = millis();
+                Serial.println("retrying WiFi connection...");
+            }
+        }
+    } else {
+        if (WiFi.status() != WL_CONNECTED) {
+            wifiConnected = false;
+            Serial.println("Wifi Lost, Will reconnect");
+        } 
+    }
+
+    if (wifiConnected && weatherInitialized) {
+        // 6. Обновляем погоду раз в 30 минут
+        weather.update();
+        if (currentScreen == 4) drawScreen4();
+    }
+
+  vTaskDelay(50/portTICK_PERIOD_MS);    // Небольшая задержка, чтобы не грузить процессор
 }
 
 
@@ -164,6 +221,7 @@ void updateDisplay() {
     case 1:drawScreen1(); break;
     case 2:drawScreen2(); break;
     case 3:drawScreen3(); break;
+    case 4:drawScreen4(); break;
     }
 }
 
@@ -197,9 +255,34 @@ void drawProgressBar(int x, int y, int w, int h, uint16_t bgColor, uint16_t fill
     tft.drawRect(x, y, w, h, TFT_WHITE);
 }
 
+//Вспомогательная функция для направления ветра
+String getWindDirection(int deg) {
+    if (deg < 22.5) return "С";
+    if (deg < 67.5) return "СВ";
+    if (deg < 112.5) return "В";
+    if (deg < 157.5) return "ЮВ";
+    if (deg < 202.5) return "Ю";
+    if (deg < 247.5) return "ЮЗ";
+    if (deg < 292.5) return "З";
+    if (deg < 337.5) return "СЗ";
+    return "С";
+}
+
 // ====================== ГЛАВНЫЙ ЭКРАН ======================
 void drawScreen0() {
     int x0 = 13, y0 = 70, w = 210, h = 90, gap = 20;
+
+    // ---- Статус сети WIFI ----
+    tft.setTextSize(1);
+    if (wifiConnected) {
+        tft.setTextColor(TFT_GREEN, TFT_BLACK, true);
+        tft.setCursor(380, 10);
+        tft.print("WIFI");
+    } else {
+        tft.setTextColor(TFT_RED, TFT_BLACK, true);
+        tft.setCursor(380, 10);
+        tft.print("No WIFI");
+    }
 
     // ---- Время и дата ----
     tft.loadFont("Arial24", SPIFFS);
@@ -422,5 +505,71 @@ void drawScreen3() {
     tft.loadFont("Arial24", SPIFFS);
     tft.print("<  > для изменения экрана");
     tft.unloadFont();
+}
 
+// ====================== ЭКРАН ПОГОДЫ(API) ======================
+void drawScreen4() {
+    // Заголовок
+    
+    tft.setTextColor(TFT_BLUE, TFT_BLACK, true);
+    tft.loadFont("Arial24", SPIFFS);
+    tft.setCursor(15, 15);
+    tft.print("Погода: " + weather.getCity());
+
+    // Проверка валидности данных
+    if (!weather.isDataFresh() && WiFi.status() != WL_CONNECTED) {
+        tft.setTextColor(TFT_RED, TFT_BLACK, true);
+        tft.setCursor(15, 60);
+        tft.print("Нет соединения с интернетом");
+        tft.setCursor(15, 100);
+        tft.print('Показываю кэш');
+    }
+
+    // Температура
+    tft.setTextColor(TFT_PINK, TFT_BLACK, true);
+    tft.setCursor(25, 50);
+    char tempBuf[16];
+    sprintf(tempBuf, "%.1f C", weather.getTemp());
+    tft.print(tempBuf);
+    
+    // Ощущается как
+    tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
+    tft.setCursor(25, 90);
+    tft.print("Ощущается как: " + String(weather.getFeelsLike(), 1) + " C");
+    
+    // Влажность
+    tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
+    tft.setCursor(25, 120);
+    tft.print("Влажность: " + String(weather.getHumidity()) + " %");
+    
+    // Давление
+    tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
+    tft.setCursor(25, 150);
+    tft.print("Давление: " + String(weather.getPressure_hPa(), 1) + " hPa");
+    
+    // Ветер
+    tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
+    tft.setCursor(25, 180);
+    tft.print("Ветер: " + String(weather.getWindSpeed(), 1) + " м/с, " + getWindDirection(weather.getWindDeg()));
+    
+    // Облачность
+    tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
+    tft.setCursor(25, 210);
+    tft.print("Облачность: " + String(weather.getClouds()) + " %");
+    
+    // Описание
+    tft.setTextColor(TFT_GREENYELLOW, TFT_BLACK, true);
+    tft.setCursor(25, 240);
+    tft.print(weather.getDescription());
+    
+    // Время последнего обновления
+    tft.setTextColor(TFT_DARKGREY, TFT_BLACK, true);
+    tft.setCursor(25, 270);
+    unsigned long age = (millis() - weather.getLastUpdateTime()) / 60000UL; // минуты
+    tft.print("Обновлено " + String(age) + " мин назад");
+    
+    // Подсказка навигации
+    tft.setTextColor(TFT_DARKGREY, TFT_BLACK, true);
+    tft.setCursor(15, 300);
+    tft.print("<  > для изменения экрана");
 }

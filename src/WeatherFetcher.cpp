@@ -4,6 +4,7 @@
 
 WeatherFetcher::WeatherFetcher() : _temp(0), _feelsLike(0), _humidity(0), _pressure(0), _windSpeed(0), 
         _winDeg(0), _clouds(0), _description(""), _iconCode(""), _lastUpdateTime(0), _dataValid(false), _lastError(""), _sunrise(0), _sunset(0)
+        
  {}
 
 void WeatherFetcher::init(String city, String apiKey){
@@ -25,7 +26,7 @@ void WeatherFetcher::update(){
 
 bool WeatherFetcher::_fetchData() {
     if (_apiKey.length() == 0 || _city.length() == 0) {
-        _lastError = 'No Api key or city';
+        _lastError = "No Api key or city";
         _dataValid = false;
         return false;
     }
@@ -85,7 +86,7 @@ void WeatherFetcher::_parseJson(const String& json) {
         _description = weather[0]["description"].as<String>();
         _iconCode = weather[0]["icon"].as<String>();
     } else {
-        _description = 'N/A';
+        _description = "N/A";
         _iconCode = "01d";
     }
 

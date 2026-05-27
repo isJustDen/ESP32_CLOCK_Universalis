@@ -66,7 +66,7 @@ void setup() {
   Serial.begin(115200);
   Serial.println("AegisDesk starting..."); 
     
-  initDisplay(); // инициализация дисплея
+    initDisplay(); // инициализация дисплея
 
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     wifiConnectStart=millis();
@@ -117,6 +117,7 @@ void setup() {
 
 // ====================== LOOP ======================
 void loop() {
+    unsigned long loopStart = micros();
     // 1. Обновляем джойстик и обрабатываем нажатия (переключение экранов)
     joy.update();
     if (joy.justPressed()){
@@ -146,7 +147,7 @@ void loop() {
         lastRTCupdate = millis();
         // На главном экране время нужно обновлять часто
         if (currentScreen == 0) {
-            drawScreen0;
+            drawScreen0();
         }
     }
 
@@ -194,8 +195,10 @@ void loop() {
     }
 
     if (wifiConnected && weatherInitialized) {
-        // 6. Обновляем погоду раз в 30 минут
-        weather.update();
+        if (millis() - lastWeatherUpdate >= WEATHER_INTERVAL) {
+            weather.update();
+            lastWeatherUpdate = millis(); 
+        }
         if (currentScreen == 4) drawScreen4();
     }
 
@@ -285,17 +288,13 @@ void drawScreen0() {
     }
 
     // ---- Время и дата ----
-    tft.loadFont("Arial24", SPIFFS);
     tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
     tft.setCursor(15, 15);
     tft.print(rtc.getTimeString());
-    tft.unloadFont();
 
-    tft.loadFont("Arial24", SPIFFS);
     tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
     tft.setCursor(240, 15);
     tft.print(rtc.getDateTimeString().substring(0, 10));
-    tft.unloadFont();
 
     tft.drawLine(5, 55, 440, 55, TFT_DARKGREY);
 
@@ -305,50 +304,40 @@ void drawScreen0() {
     else if (scd40.getCO2() > 800)  co2color = TFT_YELLOW;
 
     tft.drawRect(x0, y0, w, h, co2color);
-    tft.loadFont("Arial24", SPIFFS);
     tft.setTextColor(co2color, TFT_BLACK, true);
     tft.setCursor(x0 + 10, y0 + 8);  tft.print("Углекислый газ");
     tft.setTextColor(co2color, TFT_BLACK, true);
     tft.setCursor(x0 + 10, y0 + 40); tft.print(String(scd40.getCO2()) + " ppm   ");
-    tft.unloadFont();
 
     // ---- T / H ----
     tft.drawRect(x0 + w + gap, y0, w, h, TFT_ORANGE);
     tft.setTextColor(TFT_ORANGE, TFT_BLACK, true);
-    tft.loadFont("Arial24", SPIFFS);
     tft.setCursor(x0 + w + gap + 10, y0 + 8);  tft.print("Темпер / Влажн");
     tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
     tft.setCursor(x0 + w + gap + 10, y0 + 40);
     tft.print(String(scd40.getTemperature(), 1) + "C / " + String(scd40.getHumidity(), 1) + "%  ");
-    tft.unloadFont();
 
 
     // ---- Давление ----
     tft.drawRect(x0, y0 + h + gap, w, h, TFT_CYAN);
     tft.setTextColor(TFT_CYAN, TFT_BLACK, true);
-    tft.loadFont("Arial24", SPIFFS);
     tft.setCursor(x0 + 10, y0 + h + gap + 8);  tft.print("Давление ");
     tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
     tft.setCursor(x0 + 10, y0 + h + gap + 40);
     tft.print(String((bme280.getPressure_hPa())* 0.75006, 1) + " mmHg");
-    tft.unloadFont();
 
     // ---- Освещённость ----
     tft.drawRect(x0 + w + gap, y0 + h + gap, w, h, TFT_YELLOW);
     tft.setTextColor(TFT_YELLOW, TFT_BLACK, true);
-    tft.loadFont("Arial24", SPIFFS);
     tft.setCursor(x0 + w + gap + 10, y0 + h + gap + 8);  tft.print("Уровень света    ");
     tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
     tft.setCursor(x0 + w + gap + 10, y0 + h + gap + 40);
     tft.print(String(light.getLux(), 0) + " lx       ");
-    tft.unloadFont();
 
     // ---- Подсказка ----
     tft.setTextColor(TFT_DARKGREY, TFT_BLACK, true);
-    tft.loadFont("Arial24", SPIFFS);
     tft.setCursor(15, 320);
     tft.print("<  > для изменения экрана");
-    tft.unloadFont();
 
 }
 
@@ -356,10 +345,8 @@ void drawScreen0() {
 void drawScreen1() {
     // Статичные заголовки — setTextColor с фоном, повторная печать не мерцает
     tft.setTextColor(TFT_CYAN, TFT_BLACK, true);
-    tft.loadFont("Arial24", SPIFFS);
     tft.setCursor(15, 15);
     tft.print("Уровень углекислого газа");
-    tft.unloadFont();
 
     uint16_t co2 = scd40.getCO2();
     uint16_t color = TFT_GREEN;
@@ -367,14 +354,12 @@ void drawScreen1() {
     else if (co2 > 800)  color = TFT_YELLOW;
 
     // Крупное значение
-    tft.loadFont("Arial24", SPIFFS);
     tft.setTextColor(color, TFT_BLACK, true);
     tft.setCursor(25, 80);
     tft.setTextColor(color, TFT_BLACK, true);
     char buf[16];
     sprintf(buf, "%-4d ppm", co2); // CO2 до 9999, 4 символа
     tft.print(buf);
-    tft.unloadFont();
 
 
     // Прогресс-бар — две части вместо fillRect на весь бар
@@ -386,41 +371,32 @@ void drawScreen1() {
     tft.drawRect(bx,      by, bw,      bh, TFT_WHITE);
 
     // Метки бара
-    tft.loadFont("Arial24", SPIFFS);
     tft.setTextColor(TFT_PURPLE, TFT_BLACK, true);
     tft.setCursor(25,  195); tft.print("Хороший ");
     tft.setCursor(185, 195); tft.print("Умеренный ");
     tft.setCursor(360, 195); tft.print("Высокий ");
-    tft.unloadFont();
 
     // Температура и влажность
     tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
-    tft.loadFont("Arial24", SPIFFS);
     tft.setCursor(25, 235);
     tft.print("Температура: "); tft.print(scd40.getTemperature(), 1); tft.print(" C   ");
     tft.setCursor(25, 265);
     tft.print("Влажность:  "); tft.print(scd40.getHumidity(), 1);    tft.print(" %   ");
-    tft.unloadFont();
 
 
     tft.setTextColor(TFT_DARKGREY, TFT_BLACK, true);
     tft.setCursor(15, 340);
-    tft.loadFont("Arial24", SPIFFS);
     tft.print("<  > для изменения экрана");
-    tft.unloadFont();
 
 }
 
 // ====================== ЭКРАН ДАВЛЕНИЯ ======================
 void drawScreen2() {
     tft.setTextColor(TFT_MAGENTA, TFT_BLACK, true);
-    tft.loadFont("Arial24", SPIFFS);
     tft.setCursor(15, 15);
     tft.print("Атмосферное давление");
-    tft.unloadFont();
 
     float press = bme280.getPressure_hPa();
-    tft.loadFont("Arial24", SPIFFS);
     tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
     tft.setCursor(25, 70);
     uint16_t color = TFT_DARKGREY;
@@ -431,11 +407,9 @@ void drawScreen2() {
     char buf[16];
     sprintf(buf, "%-7.1f hPa", press); // 1013.2, 7 символов
     tft.print(buf);
-    tft.unloadFont();
 
 
     // Строка статуса — фиксированная ширина пробелами
-    tft.loadFont("Arial24", SPIFFS);
     tft.setTextColor(TFT_GREENYELLOW, TFT_BLACK, true);
     tft.setCursor(25, 140);
     if      (press > 1015) tft.print("Стабильное высокое давление          ");
@@ -458,31 +432,24 @@ void drawScreen2() {
     tft.setTextColor(TFT_DARKGREY, TFT_BLACK, true);
     tft.setCursor(25, 270);
     tft.print("Над уровнем моря: 1013 hPa");
-    tft.unloadFont();
 
     tft.setCursor(15, 340);
-    tft.loadFont("Arial24", SPIFFS);
     tft.print("<  > для изменения экрана");
-    tft.unloadFont();
 
 }
 
 // ====================== ЭКРАН ОСВЕЩЁННОСТИ ======================
 void drawScreen3() {
     tft.setTextColor(TFT_YELLOW, TFT_BLACK, true);
-    tft.loadFont("Arial24", SPIFFS);
     tft.setCursor(15, 15);
     tft.print("Освещенность");
-    tft.unloadFont();
 
     float lux = light.getLux();
-    tft.loadFont("Arial24", SPIFFS);
     tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
     tft.setCursor(25, 100);
     char buf[12];
     sprintf(buf, "%-4.0f lx", lux);
     tft.print(buf);
-    tft.unloadFont();
 
 
     // Прогресс-бар
@@ -493,18 +460,14 @@ void drawScreen3() {
     tft.fillRect(bx + fw, by, bw - fw, bh, TFT_DARKGREY);
     tft.drawRect(bx,      by, bw,      bh, TFT_WHITE);
 
-    tft.loadFont("Arial24", SPIFFS);
     tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
     tft.setCursor(25,  210); tft.print("Темно  ");
     tft.setCursor(195, 210); tft.print("Офис");
     tft.setCursor(350, 210); tft.print("Солнечно ");
-    tft.unloadFont();
 
     tft.setTextColor(TFT_DARKGREY, TFT_BLACK, true);
     tft.setCursor(15, 340);
-    tft.loadFont("Arial24", SPIFFS);
     tft.print("<  > для изменения экрана");
-    tft.unloadFont();
 }
 
 // ====================== ЭКРАН ПОГОДЫ(API) ======================
@@ -512,7 +475,6 @@ void drawScreen4() {
     // Заголовок
     
     tft.setTextColor(TFT_BLUE, TFT_BLACK, true);
-    tft.loadFont("Arial24", SPIFFS);
     tft.setCursor(15, 15);
     tft.print("Погода: " + weather.getCity());
 
@@ -522,7 +484,7 @@ void drawScreen4() {
         tft.setCursor(15, 60);
         tft.print("Нет соединения с интернетом");
         tft.setCursor(15, 100);
-        tft.print('Показываю кэш');
+        tft.print("Показываю кэш");
     }
 
     // Температура

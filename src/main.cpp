@@ -12,6 +12,21 @@
 #include "WeatherFetcher.h"
 #include <WiFi.h>
 #include "secrets.h"
+#include "CryptoFetcher.h"
+
+uint16_t getColorForChange(float change){
+    if (change > 0) return TFT_GREEN;
+    if (change < 0) return TFT_RED;
+    return TFT_WHITE;
+}
+
+uint16_t getColorForFearGreed(int value) {
+    if (value <= 25) return TFT_ORANGE;
+    if (value <= 45) return TFT_YELLOW;
+    if (value <= 55) return TFT_WHITE;
+    if (value <= 75) return TFT_GREENYELLOW;
+    return TFT_GREEN;
+}
 
 // ========== Объекты ==========
 TFT_eSPI tft = TFT_eSPI(); 
@@ -21,6 +36,7 @@ BME280_sensor bme280;
 TEMT6000_sensor light;
 Joystick joy;
 WeatherFetcher weather;
+CryptoFetcher crypto;
 
 // ========== Пины ==========
 // Джойстик
@@ -33,7 +49,7 @@ WeatherFetcher weather;
 
 // ========== Переменные для экрана и меню ==========
 int currentScreen = 0; // 0 - главный (часы+сводка), 1 - CO2+темп, 2 - давление, 3 - освещённость, 4 - погода(API)
-const int numScreens = 5;
+const int numScreens = 6;
 unsigned long lastRTCupdate = 0;
 unsigned long lastSensorReadAll = 0;
 const unsigned long RTC_INTERVAL = 1000;
@@ -49,6 +65,9 @@ bool wifiConnected = false;
 unsigned long wifiConnectStart = 0;
 const unsigned long WIFI_TIMEOUT = 10000;  // 10 секунд на попытку подключения
 
+//crypto
+bool cryptoInitialized = false;
+
 // === Прототипы функций ===
 void initDisplay();
 void updateDisplay();
@@ -57,6 +76,7 @@ void drawScreen1(); // CO2 и климат от SCD40
 void drawScreen2(); // давление и температура BME280
 void drawScreen3(); // освещённость
 void drawScreen4(); // погода
+void drawScreen5(); // crypto активы
 void drawBlock();
 
 
@@ -110,7 +130,7 @@ void setup() {
 
     delay(2000);
     tft.fillScreen(TFT_BLACK);
-     drawScreen0(); // рисуем начальный экран
+    drawScreen0(); // рисуем начальный экран
 } 
 
 
@@ -178,6 +198,10 @@ void loop() {
                 weather.init(CITY_NAME, OPENWEATHER_API_KEY);
                 weatherInitialized = true;
             }
+            if (!cryptoInitialized && wifiConnected) {
+                crypto.init(COINMARKETCAP_API_KEY);
+                cryptoInitialized = true;
+            }
         } else if (millis() - wifiConnectStart > WIFI_TIMEOUT) {
             static unsigned long lastReconnectAttempt = 0;
             if (millis() - lastReconnectAttempt > 30000) {
@@ -200,6 +224,12 @@ void loop() {
             lastWeatherUpdate = millis(); 
         }
         if (currentScreen == 4) drawScreen4();
+    if (wifiConnected && cryptoInitialized) {
+        crypto.update();
+        if (currentScreen == 5) {
+            drawScreen5();
+        }
+    }
     }
 
   vTaskDelay(50/portTICK_PERIOD_MS);    // Небольшая задержка, чтобы не грузить процессор
@@ -225,6 +255,7 @@ void updateDisplay() {
     case 2:drawScreen2(); break;
     case 3:drawScreen3(); break;
     case 4:drawScreen4(); break;
+    case 5:drawScreen5(); break;
     }
 }
 
@@ -334,11 +365,6 @@ void drawScreen0() {
     tft.setCursor(x0 + w + gap + 10, y0 + h + gap + 40);
     tft.print(String(light.getLux(), 0) + " lx       ");
 
-    // ---- Подсказка ----
-    tft.setTextColor(TFT_DARKGREY, TFT_BLACK, true);
-    tft.setCursor(15, 320);
-    tft.print("<  > для изменения экрана");
-
 }
 
 // ====================== ЭКРАН CO2 ======================
@@ -383,11 +409,6 @@ void drawScreen1() {
     tft.setCursor(25, 265);
     tft.print("Влажность:  "); tft.print(scd40.getHumidity(), 1);    tft.print(" %   ");
 
-
-    tft.setTextColor(TFT_DARKGREY, TFT_BLACK, true);
-    tft.setCursor(15, 340);
-    tft.print("<  > для изменения экрана");
-
 }
 
 // ====================== ЭКРАН ДАВЛЕНИЯ ======================
@@ -430,11 +451,8 @@ void drawScreen2() {
     tft.print(" C");
 
     tft.setTextColor(TFT_DARKGREY, TFT_BLACK, true);
-    tft.setCursor(25, 270);
-    tft.print("Над уровнем моря: 1013 hPa");
-
-    tft.setCursor(15, 340);
-    tft.print("<  > для изменения экрана");
+    tft.setCursor(25, 300);
+    tft.print("Над уровнем моря: 1015 hPa");
 
 }
 
@@ -465,9 +483,6 @@ void drawScreen3() {
     tft.setCursor(195, 210); tft.print("Офис");
     tft.setCursor(350, 210); tft.print("Солнечно ");
 
-    tft.setTextColor(TFT_DARKGREY, TFT_BLACK, true);
-    tft.setCursor(15, 340);
-    tft.print("<  > для изменения экрана");
 }
 
 // ====================== ЭКРАН ПОГОДЫ(API) ======================
@@ -526,12 +541,122 @@ void drawScreen4() {
     
     // Время последнего обновления
     tft.setTextColor(TFT_DARKGREY, TFT_BLACK, true);
-    tft.setCursor(25, 270);
+    tft.setCursor(25, 300);
     unsigned long age = (millis() - weather.getLastUpdateTime()) / 60000UL; // минуты
     tft.print("Обновлено " + String(age) + " мин назад");
     
-    // Подсказка навигации
+}
+
+// ====================== ЭКРАН КРИПТЫ(API) ======================
+void drawScreen5(){
+
+    tft.setTextColor(TFT_GOLD, TFT_BLACK, true);
+    tft.setCursor(15, 10);
+    tft.print("КРИПТА");
+
+    if (!crypto.isDataValid()){
+        tft.setTextColor(TFT_RED, TFT_BLACK, true);
+        tft.setCursor(15, 50);
+        tft.print("NO DATA");
+        tft.setCursor(15, 80);
+        tft.print(crypto.getLastError());
+        return;
+    }
+
+     // === Левая колонка: цены монет ===
+    int x = 15;
+    int y = 50;
+    int lineHeight = 35;
+    
+    // Bitcoin
+    float btc = crypto.getBTCPrice();
+    float btcCh = crypto.getBTCChange24h();
+    tft.setTextColor(TFT_ORANGE, TFT_BLACK, true);
+    tft.setCursor(x, y);
+    tft.print("BTC:");
+    tft.setTextColor(getColorForChange(btcCh), TFT_BLACK, true);
+    tft.printf(" $%.2f (%.2f%%)", btc, btcCh);
+    
+    // Ethereum
+    float eth = crypto.getETHPrice();
+    float ethCh = crypto.getETHChange24h();
+    tft.setCursor(x, y + lineHeight);
+    tft.setTextColor(TFT_BLUE, TFT_BLACK, true);
+    tft.print("ETH:");
+    tft.setTextColor(getColorForChange(ethCh), TFT_BLACK, true);
+    tft.printf(" $%.2f (%.2f%%)", eth, ethCh);
+    
+    // Solana
+    float sol = crypto.getSOLPrice();
+    float solCh = crypto.getSOLChange24h();
+    tft.setCursor(x, y + lineHeight * 2);
+    tft.setTextColor(TFT_PURPLE, TFT_BLACK, true);
+    tft.print("SOL:");
+    tft.setTextColor(getColorForChange(solCh), TFT_BLACK, true);
+    tft.printf(" $%.2f (%.2f%%)", sol, solCh);
+    
+    // XRP
+    float xrp = crypto.getXRPPrice();
+    float xrpCh = crypto.getXRPChange24h();
+    tft.setCursor(x, y + lineHeight * 3);
+    tft.setTextColor(TFT_SKYBLUE, TFT_BLACK, true);
+    tft.print("XRP:");
+    tft.setTextColor(getColorForChange(xrpCh), TFT_BLACK, true);
+    tft.printf(" $%.4f (%.2f%%)", xrp, xrpCh);
+    
+    // Chainlink
+    float link = crypto.getLINKPrice();
+    float linkCh = crypto.getLINKChange24h();
+    tft.setCursor(x, y + lineHeight * 4);
+    tft.setTextColor(TFT_MAGENTA, TFT_BLACK, true);
+    tft.print("LINK:");
+    tft.setTextColor(getColorForChange(linkCh), TFT_BLACK, true);
+    tft.printf(" $%.2f (%.2f%%)", link, linkCh);
+    
+    // === Правая колонка: рыночные индексы ===
+    int rightX = 290;
+    int rightY = 50;
+    int rightLineHeight = 50;
+    
+    // Altcoin Season Index
+    int altIndex = crypto.getAltcoinIndex();
+    uint16_t altColor;
+    String altStatus;
+    if (altIndex > 75) {
+        altColor = TFT_GREEN;
+        altStatus = "АЛЬТСЕЗОН!";
+    } else if (altIndex < 25) {
+        altColor = TFT_RED;
+        altStatus = "BTC СЕЗОН";
+    } else {
+        altColor = TFT_YELLOW;
+        altStatus = "Смешано";
+    }
+    tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
+    tft.setCursor(rightX, rightY);
+    tft.print("Индекс альтсез");
+    tft.setTextColor(altColor, TFT_BLACK, true);
+    tft.setCursor(rightX, rightY + 25);
+    tft.printf("%d (%s)", altIndex, altStatus.c_str());
+    
+    // Fear & Greed Index
+    int fg = crypto.getFearGreedValue();
+    String fgClass = crypto.getFearGreedClassification();
+    uint16_t fgColor = getColorForFearGreed(fg);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
+    tft.setCursor(rightX, rightY + rightLineHeight);
+    tft.print("Жадн/Страх");
+    tft.setTextColor(fgColor, TFT_BLACK, true);
+    tft.setCursor(rightX, rightY + rightLineHeight + 25);
+    tft.printf("%d (%s)", fg, fgClass.c_str());
+    
+    // Прогресс-бар для Fear & Greed (0-100)
+    drawProgressBar(rightX, rightY + rightLineHeight + 45, 120, 15, TFT_DARKGREY, fgColor, fg / 100.0);
+    
+    // Время последнего обновления
     tft.setTextColor(TFT_DARKGREY, TFT_BLACK, true);
-    tft.setCursor(15, 300);
-    tft.print("<  > для изменения экрана");
+    tft.setCursor(25, 300);
+    unsigned long age = (millis() - weather.getLastUpdateTime()) / 60000UL; // минуты
+    tft.print("Обновлено " + String(age) + " мин назад");
+    
 }

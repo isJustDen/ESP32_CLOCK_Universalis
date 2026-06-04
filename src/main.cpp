@@ -13,6 +13,7 @@
 #include <WiFi.h>
 #include "secrets.h"
 #include "CryptoFetcher.h"
+#include "CurrencyFetcher.h"
 
 uint16_t getColorForChange(float change){
     if (change > 0) return TFT_GREEN;
@@ -37,6 +38,7 @@ TEMT6000_sensor light;
 Joystick joy;
 WeatherFetcher weather;
 CryptoFetcher crypto;
+CurrencyFetcher currency;
 
 // ========== Пины ==========
 // Джойстик
@@ -67,6 +69,9 @@ const unsigned long WIFI_TIMEOUT = 10000;  // 10 секунд на попытк�
 
 //crypto
 bool cryptoInitialized = false;
+
+//currency
+bool currencyInitialized = false;
 
 // === Прототипы функций ===
 void initDisplay();
@@ -202,9 +207,13 @@ void loop() {
                 crypto.init(COINMARKETCAP_API_KEY);
                 cryptoInitialized = true;
             }
+            if(!currencyInitialized && wifiConnected){
+                currency.init();
+                currencyInitialized = true;
+            }
         } else if (millis() - wifiConnectStart > WIFI_TIMEOUT) {
             static unsigned long lastReconnectAttempt = 0;
-            if (millis() - lastReconnectAttempt > 30000) {
+            if (millis() - lastReconnectAttempt > 10000) {
                 WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
                 wifiConnectStart = millis();
                 lastReconnectAttempt = millis();
@@ -224,13 +233,19 @@ void loop() {
             lastWeatherUpdate = millis(); 
         }
         if (currentScreen == 4) drawScreen4();
-    if (wifiConnected && cryptoInitialized) {
-        crypto.update();
-        if (currentScreen == 5) {
-            drawScreen5();
         }
-    }
-    }
+        if (wifiConnected && cryptoInitialized) {
+            crypto.update();
+            if (currentScreen == 5) {
+                drawScreen5();
+            }
+        }
+        if (wifiConnected && currencyInitialized){
+            currency.update();
+            if (currentScreen == 5){
+                drawScreen5();
+            }
+        }
 
   vTaskDelay(50/portTICK_PERIOD_MS);    // Небольшая задержка, чтобы не грузить процессор
 }
@@ -616,7 +631,7 @@ void drawScreen5(){
     // === Правая колонка: рыночные индексы ===
     int rightX = 290;
     int rightY = 50;
-    int rightLineHeight = 50;
+    int rightLineHeight = 65;
     
     // Altcoin Season Index
     int altIndex = crypto.getAltcoinIndex();
@@ -650,9 +665,30 @@ void drawScreen5(){
     tft.setCursor(rightX, rightY + rightLineHeight + 25);
     tft.printf("%d (%s)", fg, fgClass.c_str());
     
-    // Прогресс-бар для Fear & Greed (0-100)
-    drawProgressBar(rightX, rightY + rightLineHeight + 45, 120, 15, TFT_DARKGREY, fgColor, fg / 100.0);
-    
+    int startY = rightY + rightLineHeight + 70;
+
+    tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
+    tft.setCursor(rightX, startY);
+    tft.print("Курсы валют");
+
+    // USD
+    tft.setTextColor(TFT_GREENYELLOW, TFT_BLACK, true);
+    tft.setCursor(rightX, startY + 25);
+    tft.printf("USD: %.2f", currency.getUSDRate());
+    tft.printf("тг");
+    // RUB
+    tft.setTextColor(TFT_SKYBLUE, TFT_BLACK, true);
+    tft.setCursor(rightX, startY + 50);
+    tft.printf("RUB: %.2f", currency.getRUBRate());
+    tft.printf("тг");
+
+
+    // CNY
+    tft.setTextColor(TFT_ORANGE, TFT_BLACK, true);
+    tft.setCursor(rightX, startY + 75);
+    tft.printf("CNY: %.2f", currency.getCNYRate());
+    tft.printf("тг");
+
     // Время последнего обновления
     tft.setTextColor(TFT_DARKGREY, TFT_BLACK, true);
     tft.setCursor(25, 300);

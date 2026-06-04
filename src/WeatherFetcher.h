@@ -23,7 +23,7 @@ class WeatherFetcher {
         int getWindDeg() const { return _winDeg; }
         int getClouds() const { return _clouds; }
         int getSunset() const { return _sunset; }
-        int getSunrice() const { return _sunrise; }
+        int getSunrise() const { return _sunrise; }
         String getDescription() const { return _description; }
         String getIconCode() const { return _iconCode; }
         String getLastError() const { return _lastError; }

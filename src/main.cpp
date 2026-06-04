@@ -15,19 +15,6 @@
 #include "CryptoFetcher.h"
 #include "CurrencyFetcher.h"
 
-uint16_t getColorForChange(float change){
-    if (change > 0) return TFT_GREEN;
-    if (change < 0) return TFT_RED;
-    return TFT_WHITE;
-}
-
-uint16_t getColorForFearGreed(int value) {
-    if (value <= 25) return TFT_ORANGE;
-    if (value <= 45) return TFT_YELLOW;
-    if (value <= 55) return TFT_WHITE;
-    if (value <= 75) return TFT_GREENYELLOW;
-    return TFT_GREEN;
-}
 
 // ========== Объекты ==========
 TFT_eSPI tft = TFT_eSPI(); 
@@ -51,6 +38,7 @@ CurrencyFetcher currency;
 
 // ========== Переменные для экрана и меню ==========
 int currentScreen = 0; // 0 - главный (часы+сводка), 1 - CO2+темп, 2 - давление, 3 - освещённость, 4 - погода(API)
+int tzOffset = 5 * 3600; // Алматы, UTC+5
 const int numScreens = 6;
 unsigned long lastRTCupdate = 0;
 unsigned long lastSensorReadAll = 0;
@@ -84,6 +72,56 @@ void drawScreen4(); // погода
 void drawScreen5(); // crypto активы
 void drawBlock();
 
+// ====================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ======================
+
+// Универсальная функция для преобразования Unix Timestamp в строку "ЧЧ:ММ"
+String formatTimestamp(unsigned long timestampUTC, int offsetSeconds){
+    unsigned long localTimestamp = timestampUTC + offsetSeconds;
+    time_t rawTime = localTimestamp;
+    struct tm* timeinfo = gmtime(&rawTime);
+    char buffer[6];
+    strftime(buffer, sizeof(buffer), "%H:%M", timeinfo);
+    return String(buffer);
+}
+
+// Функция для расчёта продолжитеьности дня
+String getDayLightDuration(unsigned long sunriseTimestamp, unsigned long sunsetTimestamp){
+    unsigned long durationSeconds = sunsetTimestamp - sunriseTimestamp;
+
+    int hours = durationSeconds/3600;
+    int minutes = (durationSeconds % 3600)/60;
+
+    char buffer[6];
+    sprintf(buffer, "%02d:%02d", hours, minutes);
+    return String(buffer);
+}
+
+//Функция для направления ветра
+String getWindDirection(int deg) {
+    if (deg < 22.5) return "С";
+    if (deg < 67.5) return "СВ";
+    if (deg < 112.5) return "В";
+    if (deg < 157.5) return "ЮВ";
+    if (deg < 202.5) return "Ю";
+    if (deg < 247.5) return "ЮЗ";
+    if (deg < 292.5) return "З";
+    if (deg < 337.5) return "СЗ";
+    return "С";
+}
+
+uint16_t getColorForChange(float change){
+    if (change > 0) return TFT_GREEN;
+    if (change < 0) return TFT_RED;
+    return TFT_WHITE;
+}
+
+uint16_t getColorForFearGreed(int value) {
+    if (value <= 25) return TFT_ORANGE;
+    if (value <= 45) return TFT_YELLOW;
+    if (value <= 55) return TFT_WHITE;
+    if (value <= 75) return TFT_GREENYELLOW;
+    return TFT_GREEN;
+}
 
 
 // ====================== SETUP ======================
@@ -304,19 +342,6 @@ void drawProgressBar(int x, int y, int w, int h, uint16_t bgColor, uint16_t fill
     tft.drawRect(x, y, w, h, TFT_WHITE);
 }
 
-//Вспомогательная функция для направления ветра
-String getWindDirection(int deg) {
-    if (deg < 22.5) return "С";
-    if (deg < 67.5) return "СВ";
-    if (deg < 112.5) return "В";
-    if (deg < 157.5) return "ЮВ";
-    if (deg < 202.5) return "Ю";
-    if (deg < 247.5) return "ЮЗ";
-    if (deg < 292.5) return "З";
-    if (deg < 337.5) return "СЗ";
-    return "С";
-}
-
 // ====================== ГЛАВНЫЙ ЭКРАН ======================
 void drawScreen0() {
     int x0 = 13, y0 = 70, w = 210, h = 90, gap = 20;
@@ -502,8 +527,11 @@ void drawScreen3() {
 
 // ====================== ЭКРАН ПОГОДЫ(API) ======================
 void drawScreen4() {
+    String sunriceStr = formatTimestamp(weather.getSunrise(), tzOffset);
+    String sunsetStr = formatTimestamp(weather.getSunset(), tzOffset);
+    String daylight = getDayLightDuration(weather.getSunrise(), weather.getSunset());
+
     // Заголовок
-    
     tft.setTextColor(TFT_BLUE, TFT_BLACK, true);
     tft.setCursor(15, 15);
     tft.print("Погода: " + weather.getCity());
@@ -554,6 +582,12 @@ void drawScreen4() {
     tft.setCursor(25, 240);
     tft.print(weather.getDescription());
     
+    // Закат/восход
+    tft.setTextColor(TFT_ORANGE, TFT_BLACK, true);
+    tft.setCursor(25, 270);
+    tft.print("Восх/Зак(Прод): " + String(sunriceStr) + " / ");
+    tft.print(String(sunsetStr) + " (" + daylight + ")");
+
     // Время последнего обновления
     tft.setTextColor(TFT_DARKGREY, TFT_BLACK, true);
     tft.setCursor(25, 300);

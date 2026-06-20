@@ -5,8 +5,8 @@
 #include <TFT_eSPI.h>
 #include "SCD40_sensor.h"
 #include "DS3231_RTC.h"
-#include "BME280_sensor.h"
-#include "TEMT6000_sensor.h"
+// #include "BME280_sensor.h"
+// #include "TEMT6000_sensor.h"
 #include "Joystick.h"
 #include <SPIFFS.h>
 #include "WeatherFetcher.h"
@@ -20,8 +20,8 @@
 TFT_eSPI tft = TFT_eSPI(); 
 SCD40_sensor scd40;
 DS3231_RTC rtc;
-BME280_sensor bme280;
-TEMT6000_sensor light;
+// BME280_sensor bme280;
+// TEMT6000_sensor light;
 Joystick joy;
 WeatherFetcher weather;
 CryptoFetcher crypto;
@@ -38,7 +38,6 @@ CurrencyFetcher currency;
 
 // ========== Переменные для экрана и меню ==========
 int currentScreen = 0; // 0 - главный (часы+сводка), 1 - CO2+темп, 2 - давление, 3 - освещённость, 4 - погода(API)
-int tzOffset = 5 * 3600; // Алматы, UTC+5
 const int numScreens = 6;
 unsigned long lastRTCupdate = 0;
 unsigned long lastSensorReadAll = 0;
@@ -162,13 +161,13 @@ void setup() {
         tft.println("DS3231 ERROR!");
         Serial.println("DS3231 initialization failed");
     }
-    if (!bme280.init(21, 22)) {
-        tft.setCursor(10, 150);
-        tft.setTextColor(TFT_RED, TFT_BLACK, true);
-        tft.println("BME280 ERROR!");
-        Serial.println("BME280 initialization failed");
-    }
-    light.init(LIGHT_PIN);
+    // if (!bme280.init(21, 22)) {
+    //     tft.setCursor(10, 150);
+    //     tft.setTextColor(TFT_RED, TFT_BLACK, true);
+    //     tft.println("BME280 ERROR!");
+    //     Serial.println("BME280 initialization failed");
+    // }
+    // light.init(LIGHT_PIN);
     joy.init(JOY_X, JOY_Y, JOY_SW);
 
     delay(2000);
@@ -222,14 +221,14 @@ void loop() {
         if (currentScreen == 0) drawScreen0();
     }
     // 4. Обновление BMe280, TEMT6000 (раз в 2 секунды)
-    if (millis() - lastSensorReadAll >= SENSOR_INTERVAL) {
-        bme280.read();
-        light.read();
-        lastSensorReadAll = millis();
-        if (currentScreen == 2) drawScreen2();
-        if (currentScreen == 3) drawScreen3();
-        if (currentScreen == 0) drawScreen0();
-    }
+    // if (millis() - lastSensorReadAll >= SENSOR_INTERVAL) {
+    //     bme280.read();
+    //     light.read();
+    //     lastSensorReadAll = millis();
+    //     if (currentScreen == 2) drawScreen2();
+    //     if (currentScreen == 3) drawScreen3();
+    //     if (currentScreen == 0) drawScreen0();
+    // }
 
     // 5. Управление WiFi
     if (!wifiConnected) {
@@ -395,7 +394,7 @@ void drawScreen0() {
     tft.setCursor(x0 + 10, y0 + h + gap + 8);  tft.print("Давление ");
     tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
     tft.setCursor(x0 + 10, y0 + h + gap + 40);
-    tft.print(String((bme280.getPressure_hPa())* 0.75006, 1) + " mmHg");
+    tft.print(String("Заглушка"));
 
     // ---- Освещённость ----
     tft.drawRect(x0 + w + gap, y0 + h + gap, w, h, TFT_YELLOW);
@@ -403,7 +402,7 @@ void drawScreen0() {
     tft.setCursor(x0 + w + gap + 10, y0 + h + gap + 8);  tft.print("Уровень света    ");
     tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
     tft.setCursor(x0 + w + gap + 10, y0 + h + gap + 40);
-    tft.print(String(light.getLux(), 0) + " lx       ");
+    tft.print(String("Заглушка"));
 
 }
 
@@ -455,44 +454,44 @@ void drawScreen1() {
 void drawScreen2() {
     tft.setTextColor(TFT_MAGENTA, TFT_BLACK, true);
     tft.setCursor(15, 15);
-    tft.print("Атмосферное давление");
+    tft.print("Экран заглушка");
 
-    float press = bme280.getPressure_hPa();
-    tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
-    tft.setCursor(25, 70);
-    uint16_t color = TFT_DARKGREY;
-    if      (press < 1010) color = TFT_ORANGE;
-    else if (press > 1015) color = TFT_SKYBLUE;
-    else                   color = TFT_PURPLE; 
-    tft.setTextColor(color, TFT_BLACK, true);
-    char buf[16];
-    sprintf(buf, "%-7.1f hPa", press); // 1013.2, 7 символов
-    tft.print(buf);
+    //float press = bme280.getPressure_hPa();
+    // tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
+    // tft.setCursor(25, 70);
+    // uint16_t color = TFT_DARKGREY;
+    // if      (press < 1010) color = TFT_ORANGE;
+    // else if (press > 1015) color = TFT_SKYBLUE;
+    // else                   color = TFT_PURPLE; 
+    // tft.setTextColor(color, TFT_BLACK, true);
+    // char buf[16];
+    // sprintf(buf, "%-7.1f hPa", press); // 1013.2, 7 символов
+    // tft.print(buf);
 
 
-    // Строка статуса — фиксированная ширина пробелами
-    tft.setTextColor(TFT_GREENYELLOW, TFT_BLACK, true);
-    tft.setCursor(25, 140);
-    if      (press > 1015) tft.print("Стабильное высокое давление          ");
-    else if (press < 1010) tft.print("Низкое давление - риск дождя высокий ");
-    else                   tft.print("Нормальное давление                  ");
+    // // Строка статуса — фиксированная ширина пробелами
+    // tft.setTextColor(TFT_GREENYELLOW, TFT_BLACK, true);
+    // tft.setCursor(25, 140);
+    // if      (press > 1015) tft.print("Стабильное высокое давление          ");
+    // else if (press < 1010) tft.print("Низкое давление - риск дождя высокий ");
+    // else                   tft.print("Нормальное давление                  ");
 
-    tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
-    tft.setCursor(25, 190);
-    tft.print("Влажность: ");
-    tft.print(bme280.getHumidity(), 1); 
-    tft.print(" %");
+    // tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
+    // tft.setCursor(25, 190);
+    // tft.print("Влажность: ");
+    // tft.print(bme280.getHumidity(), 1); 
+    // tft.print(" %");
 
-    tft.setTextSize(2);
-    tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
-    tft.setCursor(25, 230);
-    tft.print("Температура: ");
-    tft.print(bme280.getTemperature_C(), 1); 
-    tft.print(" C");
+    // tft.setTextSize(2);
+    // tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
+    // tft.setCursor(25, 230);
+    // tft.print("Температура: ");
+    // tft.print(bme280.getTemperature_C(), 1); 
+    // tft.print(" C");
 
-    tft.setTextColor(TFT_DARKGREY, TFT_BLACK, true);
-    tft.setCursor(25, 300);
-    tft.print("Над уровнем моря: 1015 hPa");
+    // tft.setTextColor(TFT_DARKGREY, TFT_BLACK, true);
+    // tft.setCursor(25, 300);
+    // tft.print("Над уровнем моря: 1015 hPa");
 
 }
 
@@ -500,33 +499,34 @@ void drawScreen2() {
 void drawScreen3() {
     tft.setTextColor(TFT_YELLOW, TFT_BLACK, true);
     tft.setCursor(15, 15);
-    tft.print("Освещенность");
+    tft.print("Экран заглушка");
 
-    float lux = light.getLux();
-    tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
-    tft.setCursor(25, 100);
-    char buf[12];
-    sprintf(buf, "%-4.0f lx", lux);
-    tft.print(buf);
+    // float lux = light.getLux();
+    // tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
+    // tft.setCursor(25, 100);
+    // char buf[12];
+    // sprintf(buf, "%-4.0f lx", lux);
+    // tft.print(buf);
 
 
-    // Прогресс-бар
-    float pct = constrain(lux / 2000.0, 0.0, 1.0);
-    int bx = 25, by = 170, bw = 400, bh = 24;
-    int fw = (int)(bw * pct);
-    tft.fillRect(bx,      by, fw,      bh, TFT_YELLOW);
-    tft.fillRect(bx + fw, by, bw - fw, bh, TFT_DARKGREY);
-    tft.drawRect(bx,      by, bw,      bh, TFT_WHITE);
+    // // Прогресс-бар
+    // float pct = constrain(lux / 2000.0, 0.0, 1.0);
+    // int bx = 25, by = 170, bw = 400, bh = 24;
+    // int fw = (int)(bw * pct);
+    // tft.fillRect(bx,      by, fw,      bh, TFT_YELLOW);
+    // tft.fillRect(bx + fw, by, bw - fw, bh, TFT_DARKGREY);
+    // tft.drawRect(bx,      by, bw,      bh, TFT_WHITE);
 
-    tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
-    tft.setCursor(25,  210); tft.print("Темно  ");
-    tft.setCursor(195, 210); tft.print("Офис");
-    tft.setCursor(350, 210); tft.print("Солнечно ");
+    // tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
+    // tft.setCursor(25,  210); tft.print("Темно  ");
+    // tft.setCursor(195, 210); tft.print("Офис");
+    // tft.setCursor(350, 210); tft.print("Солнечно ");
 
 }
 
 // ====================== ЭКРАН ПОГОДЫ(API) ======================
 void drawScreen4() {
+    int tzOffset = weather.getTimezoneOffset();
     String sunriceStr = formatTimestamp(weather.getSunrise(), tzOffset);
     String sunsetStr = formatTimestamp(weather.getSunset(), tzOffset);
     String daylight = getDayLightDuration(weather.getSunrise(), weather.getSunset());

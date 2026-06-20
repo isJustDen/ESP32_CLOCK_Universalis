@@ -3,9 +3,8 @@
 #include "WeatherFetcher.h"
 
 WeatherFetcher::WeatherFetcher() : _temp(0), _feelsLike(0), _humidity(0), _pressure(0), _windSpeed(0), 
-        _winDeg(0), _clouds(0), _description(""), _iconCode(""), _lastUpdateTime(0), _dataValid(false), _lastError(""), _sunrise(0), _sunset(0)
-        
- {}
+        _winDeg(0), _clouds(0), _description(""), _iconCode(""), _lastUpdateTime(0), _dataValid(false), 
+        _lastError(""), _sunrise(0), _sunset(0), _timezoneOffset(0) {}
 
 void WeatherFetcher::init(String city, String apiKey){
     _city = city;
@@ -59,7 +58,7 @@ bool WeatherFetcher::_fetchData() {
 
 void WeatherFetcher::_parseJson(const String& json) {
     // Используем DynamicJsonDocument с запасом памяти (около 2KB)
-    DynamicJsonDocument doc(2048);
+    DynamicJsonDocument doc(4096);
     DeserializationError error = deserializeJson(doc, json);
     if (error) {
         _lastError = "Json parse failed";
@@ -93,6 +92,8 @@ void WeatherFetcher::_parseJson(const String& json) {
     JsonObject sys = doc["sys"];
     _sunrise = sys["sunrise"];
     _sunset = sys["sunset"];
+
+    _timezoneOffset  = doc["timezone"] | 0;
 
     //{"coord":{"lon":69.1628,"lat":54.8753},
     //"weather":[{"id":804,"main":"Clouds","description":"пасмурно","icon":"04n"}],

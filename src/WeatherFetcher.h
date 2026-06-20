@@ -24,6 +24,7 @@ class WeatherFetcher {
         int getClouds() const { return _clouds; }
         int getSunset() const { return _sunset; }
         int getSunrise() const { return _sunrise; }
+        int getTimezoneOffset () const { return _timezoneOffset; }
         String getDescription() const { return _description; }
         String getIconCode() const { return _iconCode; }
         String getLastError() const { return _lastError; }
@@ -46,6 +47,7 @@ class WeatherFetcher {
         int _clouds;
         int _sunrise; 
         int _sunset;
+        int _timezoneOffset;
 
         String _description;
         String _iconCode;

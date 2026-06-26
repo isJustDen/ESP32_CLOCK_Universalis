@@ -48,7 +48,14 @@ bool SCD40_sensor::read() {
     float temperature = 0.0;
     float humidity = 0.0;
     
+    unsigned long t0 = millis();
     error = _sensor.readMeasurement(co2, temperature, humidity);
+    unsigned long dt = millis() - t0; 
+    if (dt > 100) { 
+        Serial.print("SCD40 readMeasurement SLOW: "); 
+        Serial.print(dt); 
+        Serial.println(" ms"); 
+    }
     
     if (error) {
         // Ошибка чтения — датчик, возможно, ещё не готов (первые 5 секунд после старта)

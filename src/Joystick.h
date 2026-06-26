@@ -15,13 +15,18 @@ class Joystick{
         bool isPressed() const { return _pressed; }
         bool justPressed() const {return _justPressed; } // фронт нажатия
     private:
+        unsigned long _lastDebounceTime;
         uint8_t _pinX, _pinY, _pinSW;
         int _xVal, _yVal;
         bool _pressed;
         bool _lastPressed;
         bool _justPressed;
+        bool _lastReading;
+        bool _stableReading;
+        bool _lastRawReading;
         int _direction;
         int _deadzone; // мёртвая зона, например 200
+
 };
 
 #endif

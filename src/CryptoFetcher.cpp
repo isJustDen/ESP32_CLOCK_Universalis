@@ -64,7 +64,10 @@ bool CryptoFetcher:: _fetchPrices() {
     http.addHeader("X-CMC_PRO_API_KEY", _apiKey);
     http.addHeader("Accept", "application/json");
 
+    unsigned long t0 = millis();
     int httpCode = http.GET();
+    Serial.print("PRICES HTTP: "); Serial.print(millis() - t0); 
+    Serial.print(" ms, code: "); Serial.println(httpCode);
 
     if (httpCode != 200){
         _lastError = "Price HTTP error" + String(httpCode);
@@ -158,7 +161,11 @@ bool CryptoFetcher::_fetchMarketIndices() {
     http.addHeader("X-CMC_PRO_API_KEY", _apiKey);
     http.addHeader("Accept", "application/json");
 
+    unsigned long t0 = millis();
     int httpCodeAlt = http.GET();
+    Serial.print("ALTCOIN HTTP: "); Serial.print(millis() - t0);
+    Serial.print(" ms, code: "); Serial.println(httpCodeAlt);
+
     if (httpCodeAlt == 200) {
         String payload = http.getString();
         _parseAltcoinIndex(payload);
@@ -174,7 +181,11 @@ bool CryptoFetcher::_fetchMarketIndices() {
     http.addHeader("X-CMC_PRO_API_KEY", _apiKey);
     http.addHeader("Accept", "application/json");
 
+    unsigned long t1 = millis(); 
     int httpCodeFng = http.GET();
+    Serial.print("FEARGREED HTTP: "); Serial.print(millis() - t1);
+    Serial.print(" ms, code: "); Serial.println(httpCodeFng);
+
     if (httpCodeFng == 200) {
         String payload = http.getString();
         _parseFearGreed(payload);

@@ -23,7 +23,13 @@ bool DS3231_RTC::init(uint8_t sda_pin, uint8_t scl_pin) {
 
 void DS3231_RTC ::update() {
     if (!_initialized) return;
+    unsigned long t0 = millis(); 
     DateTime now = _rtc.now();
+    unsigned long dt = millis() - t0; 
+    if (dt > 50) { 
+        Serial.print("RTC now() SLOW: "); Serial.print(dt); Serial.println(" ms"); 
+    }
+
     _year = now.year();
     _month = now.month();
     _day = now.day();

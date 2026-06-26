@@ -9,6 +9,11 @@ void Joystick::init(uint8_t pinX, uint8_t pinY, uint8_t pinSW) {
     _pinY = pinY;
     _pinSW = pinSW;
     pinMode(_pinSW, INPUT_PULLUP); // подтяжка к 3.3V, нажатие замыкает на GND
+    _lastDebounceTime = 0;
+    _lastRawReading = HIGH;
+    _stableReading = HIGH;
+    _lastPressed = HIGH;
+    _justPressed = false;
 }
 
 void Joystick::update() {
@@ -32,13 +37,26 @@ void Joystick::update() {
         }
     }
 
-    // Обработка кнопки с антидребезгом
-    bool reading = (digitalRead(_pinSW) == LOW); // LOW = нажато (из-за INPUT_PULLUP)
-    // Простой антидребезг: запоминаем состояние с задержкой (лучше использовать таймер, но для простоты)
-    delay(5); // маленькая задержка (не блокирующая, но здесь можно, так как update будет вызываться часто)
-    if (reading == (digitalRead(_pinSW) == LOW)) {
-        _pressed = reading;
+// ---- Антидребезг кнопки (неблокирующий) ----
+    bool reading = (digitalRead(_pinSW) == LOW); // LOW = нажато
+
+    // Если состояние изменилось, сбрасываем таймер
+    if (reading != _lastRawReading) {
+        _lastDebounceTime = millis();
     }
-    _justPressed = (_pressed && !_lastPressed);
-    _lastPressed = _pressed;
+
+    // Если прошло достаточно времени (50 мс), принимаем состояние как стабильное
+    if ((millis() - _lastDebounceTime) > 50) {
+        if (reading != _stableReading) {
+            // Состояние стабилизировалось и изменилось
+            _stableReading = reading;
+        }
+    }
+
+    _lastRawReading = reading;
+
+    // ---- Генерация событий на основе стабильного состояния ----
+    bool isPressedNow = (_stableReading == LOW); // нажато, если LOW
+    _justPressed = (isPressedNow && !_lastPressed);
+    _lastPressed = isPressedNow;
 }

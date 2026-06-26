@@ -8,13 +8,14 @@
 // #include "BME280_sensor.h"
 // #include "TEMT6000_sensor.h"
 #include "Joystick.h"
-#include <SPIFFS.h>
 #include "WeatherFetcher.h"
 #include <WiFi.h>
 #include "secrets.h"
 #include "CryptoFetcher.h"
 #include "CurrencyFetcher.h"
-
+// #include "Arial16.h"
+#include "Arial24.h"
+// #include "Arial32.h"
 
 // ========== Объекты ==========
 TFT_eSPI tft = TFT_eSPI(); 
@@ -26,15 +27,17 @@ Joystick joy;
 WeatherFetcher weather;
 CryptoFetcher crypto;
 CurrencyFetcher currency;
-
 // ========== Пины ==========
 // Джойстик
 #define JOY_X 34
 #define JOY_Y 35
 #define JOY_SW 15
+unsigned long loopStart = micros();
+unsigned long lastScreeenChangeTime = 0;
+const unsigned long SCREEN_CHANGE_DELAY = 200;
 
 // TEMT6000
-#define LIGHT_PIN 36
+//#define LIGHT_PIN 36
 
 // ========== Переменные для экрана и меню ==========
 int currentScreen = 0; // 0 - главный (часы+сводка), 1 - CO2+темп, 2 - давление, 3 - освещённость, 4 - погода(API)
@@ -56,9 +59,13 @@ const unsigned long WIFI_TIMEOUT = 10000;  // 10 секунд на попытк�
 
 //crypto
 bool cryptoInitialized = false;
+unsigned long lastCryptoUpdate = 0;
+const unsigned long CRYPTO_INTERVAL = 5 * 60 * 1000UL;
 
 //currency
 bool currencyInitialized = false;
+unsigned long lastCurrencyUpdate = 0;
+const unsigned long CURRENCY_INTERVAL = 60 * 60 * 1000UL;
 
 // === Прототипы функций ===
 void initDisplay();
@@ -122,9 +129,22 @@ uint16_t getColorForFearGreed(int value) {
     return TFT_GREEN;
 }
 
+// enum FontSize{FONT_SMALL, FONT_MEDIUM, FONT_LARGE};
+
+// void setCyrillicFont(FontSize size){
+//     tft.unloadFont();
+//     switch(size){
+//         case FONT_SMALL: tft.loadFont(Arial16); break;
+//         case FONT_MEDIUM: tft.loadFont(Arial24); break;
+//         case FONT_LARGE: tft.loadFont(Arial32); break;
+//     }
+// }
+
 
 // ====================== SETUP ======================
 void setup() {
+    unsigned long start = millis();
+
   Serial.begin(115200);
   Serial.println("AegisDesk starting..."); 
     
@@ -134,16 +154,7 @@ void setup() {
     wifiConnectStart=millis();
     wifiConnected = false;
 
-    if (!SPIFFS.begin()) {
-        Serial.println("SPIFFS mount failed!");
-        // можно вывести на экран
-        tft.setTextColor(TFT_RED, TFT_BLACK, true);
-        tft.setCursor(10, 10);
-        tft.print("SPIFFS ERROR");
-        while(1); // стоп
-    }
-    
-    tft.loadFont("Arial24", SPIFFS);
+    tft.loadFont(Arial24);
     tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
     tft.setTextFont(0);
 
@@ -168,9 +179,13 @@ void setup() {
     //     Serial.println("BME280 initialization failed");
     // }
     // light.init(LIGHT_PIN);
+
     joy.init(JOY_X, JOY_Y, JOY_SW);
 
-    delay(2000);
+    while (millis() - start < 2000) {
+        vTaskDelay(10 / portTICK_PERIOD_MS);
+    };
+
     tft.fillScreen(TFT_BLACK);
     drawScreen0(); // рисуем начальный экран
 } 
@@ -191,16 +206,21 @@ void loop() {
         }
     }
     int dir = joy.getDirection();
-    if (dir == 3) {
-        currentScreen--;
-        if (currentScreen < 0) currentScreen = numScreens -1;
-        updateDisplay();
-        delay(50);
-    } else if (dir == 4) {
-        currentScreen++;
-        if (currentScreen >= numScreens) currentScreen = 0;
-        updateDisplay();
-        delay(50);
+    if (dir == 3 || dir == 4) {
+        if (millis() - lastScreeenChangeTime >= SCREEN_CHANGE_DELAY) {
+            if (dir == 3) {
+                currentScreen--;
+            if (currentScreen < 0) currentScreen = numScreens -1;
+                updateDisplay();
+            } else if (dir == 4) {
+                currentScreen++;
+                if (currentScreen >= numScreens) currentScreen = 0; 
+            }
+                updateDisplay();
+                lastScreeenChangeTime = millis();
+        }
+
+        
     }
 
     // 2. Обновление RTC (каждую секунду)
@@ -264,24 +284,35 @@ void loop() {
         } 
     }
 
-    if (wifiConnected && weatherInitialized) {
+    if (wifiConnected && weatherInitialized && currentScreen == 4) {
         if (millis() - lastWeatherUpdate >= WEATHER_INTERVAL) {
             weather.update();
             lastWeatherUpdate = millis(); 
         }
         if (currentScreen == 4) drawScreen4();
         }
-        if (wifiConnected && cryptoInitialized) {
+        if (wifiConnected && cryptoInitialized && currentScreen == 5) {
+            if (millis() - lastCryptoUpdate >= CRYPTO_INTERVAL){
             crypto.update();
-            if (currentScreen == 5) {
-                drawScreen5();
+            lastCryptoUpdate = millis();
             }
+            if (currentScreen == 5) drawScreen5();
+            
         }
-        if (wifiConnected && currencyInitialized){
+        if (wifiConnected && currencyInitialized && currentScreen == 5){
+            if (millis() - lastCurrencyUpdate >= CURRENCY_INTERVAL){
             currency.update();
-            if (currentScreen == 5){
-                drawScreen5();
+            lastCurrencyUpdate = millis();
             }
+            if (currentScreen == 5) drawScreen5();
+        }
+
+        unsigned long loopTime = micros() - loopStart;
+        if (loopTime > 10000) {
+            Serial.print("SLOW LOOP: ");
+            Serial.print(loopTime / 1000);
+            Serial.print(" ms, screen="); 
+            Serial.println(currentScreen); 
         }
 
   vTaskDelay(50/portTICK_PERIOD_MS);    // Небольшая задержка, чтобы не грузить процессор
@@ -403,7 +434,6 @@ void drawScreen0() {
     tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
     tft.setCursor(x0 + w + gap + 10, y0 + h + gap + 40);
     tft.print(String("Заглушка"));
-
 }
 
 // ====================== ЭКРАН CO2 ======================
@@ -447,13 +477,13 @@ void drawScreen1() {
     tft.print("Температура: "); tft.print(scd40.getTemperature(), 1); tft.print(" C   ");
     tft.setCursor(25, 265);
     tft.print("Влажность:  "); tft.print(scd40.getHumidity(), 1);    tft.print(" %   ");
-
 }
 
 // ====================== ЭКРАН ДАВЛЕНИЯ ======================
 void drawScreen2() {
     tft.setTextColor(TFT_MAGENTA, TFT_BLACK, true);
     tft.setCursor(15, 15);
+    //setCyrillicFont(FONT_LARGE);
     tft.print("Экран заглушка");
 
     //float press = bme280.getPressure_hPa();
@@ -465,7 +495,7 @@ void drawScreen2() {
     // else                   color = TFT_PURPLE; 
     // tft.setTextColor(color, TFT_BLACK, true);
     // char buf[16];
-    // sprintf(buf, "%-7.1f hPa", press); // 1013.2, 7 символов
+    // tftintf(buf, "%-7.1f hPa", press); // 1013.2, 7 символов
     // tft.print(buf);
 
 
@@ -492,7 +522,6 @@ void drawScreen2() {
     // tft.setTextColor(TFT_DARKGREY, TFT_BLACK, true);
     // tft.setCursor(25, 300);
     // tft.print("Над уровнем моря: 1015 hPa");
-
 }
 
 // ====================== ЭКРАН ОСВЕЩЁННОСТИ ======================
@@ -505,7 +534,7 @@ void drawScreen3() {
     // tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
     // tft.setCursor(25, 100);
     // char buf[12];
-    // sprintf(buf, "%-4.0f lx", lux);
+    // tftintf(buf, "%-4.0f lx", lux);
     // tft.print(buf);
 
 
@@ -521,7 +550,6 @@ void drawScreen3() {
     // tft.setCursor(25,  210); tft.print("Темно  ");
     // tft.setCursor(195, 210); tft.print("Офис");
     // tft.setCursor(350, 210); tft.print("Солнечно ");
-
 }
 
 // ====================== ЭКРАН ПОГОДЫ(API) ======================
@@ -593,7 +621,6 @@ void drawScreen4() {
     tft.setCursor(25, 300);
     unsigned long age = (millis() - weather.getLastUpdateTime()) / 60000UL; // минуты
     tft.print("Обновлено " + String(age) + " мин назад");
-    
 }
 
 // ====================== ЭКРАН КРИПТЫ(API) ======================
@@ -726,7 +753,6 @@ void drawScreen5(){
     // Время последнего обновления
     tft.setTextColor(TFT_DARKGREY, TFT_BLACK, true);
     tft.setCursor(25, 300);
-    unsigned long age = (millis() - weather.getLastUpdateTime()) / 60000UL; // минуты
+    unsigned long age = (millis() - crypto.getLastUpdateTime()) / 60000UL; // минуты
     tft.print("Обновлено " + String(age) + " мин назад");
-    
 }

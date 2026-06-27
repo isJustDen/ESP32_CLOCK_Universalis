@@ -5,28 +5,24 @@
 #include <TFT_eSPI.h>
 #include "SCD40_sensor.h"
 #include "DS3231_RTC.h"
-// #include "BME280_sensor.h"
-// #include "TEMT6000_sensor.h"
+
 #include "Joystick.h"
 #include "WeatherFetcher.h"
 #include <WiFi.h>
 #include "secrets.h"
 #include "CryptoFetcher.h"
 #include "CurrencyFetcher.h"
-// #include "Arial16.h"
 #include "Arial24.h"
-// #include "Arial32.h"
 
 // ========== Объекты ==========
 TFT_eSPI tft = TFT_eSPI(); 
 SCD40_sensor scd40;
 DS3231_RTC rtc;
-// BME280_sensor bme280;
-// TEMT6000_sensor light;
 Joystick joy;
 WeatherFetcher weather;
 CryptoFetcher crypto;
 CurrencyFetcher currency;
+
 // ========== Пины ==========
 // Джойстик
 #define JOY_X 34
@@ -34,14 +30,11 @@ CurrencyFetcher currency;
 #define JOY_SW 15
 unsigned long loopStart = micros();
 unsigned long lastScreeenChangeTime = 0;
-const unsigned long SCREEN_CHANGE_DELAY = 200;
-
-// TEMT6000
-//#define LIGHT_PIN 36
+const unsigned long SCREEN_CHANGE_DELAY = 100;
 
 // ========== Переменные для экрана и меню ==========
 int currentScreen = 0; // 0 - главный (часы+сводка), 1 - CO2+темп, 2 - давление, 3 - освещённость, 4 - погода(API)
-const int numScreens = 6;
+const int numScreens = 4;
 unsigned long lastRTCupdate = 0;
 unsigned long lastSensorReadAll = 0;
 const unsigned long RTC_INTERVAL = 1000;
@@ -72,11 +65,8 @@ void initDisplay();
 void updateDisplay();
 void drawScreen0(); // главный экран
 void drawScreen1(); // CO2 и климат от SCD40
-void drawScreen2(); // давление и температура BME280
-void drawScreen3(); // освещённость
-void drawScreen4(); // погода
-void drawScreen5(); // crypto активы
-void drawBlock();
+void drawScreen2(); // погода
+void drawScreen3(); // финансы
 
 // ====================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ======================
 
@@ -129,18 +119,6 @@ uint16_t getColorForFearGreed(int value) {
     return TFT_GREEN;
 }
 
-// enum FontSize{FONT_SMALL, FONT_MEDIUM, FONT_LARGE};
-
-// void setCyrillicFont(FontSize size){
-//     tft.unloadFont();
-//     switch(size){
-//         case FONT_SMALL: tft.loadFont(Arial16); break;
-//         case FONT_MEDIUM: tft.loadFont(Arial24); break;
-//         case FONT_LARGE: tft.loadFont(Arial32); break;
-//     }
-// }
-
-
 // ====================== SETUP ======================
 void setup() {
     unsigned long start = millis();
@@ -172,13 +150,6 @@ void setup() {
         tft.println("DS3231 ERROR!");
         Serial.println("DS3231 initialization failed");
     }
-    // if (!bme280.init(21, 22)) {
-    //     tft.setCursor(10, 150);
-    //     tft.setTextColor(TFT_RED, TFT_BLACK, true);
-    //     tft.println("BME280 ERROR!");
-    //     Serial.println("BME280 initialization failed");
-    // }
-    // light.init(LIGHT_PIN);
 
     joy.init(JOY_X, JOY_Y, JOY_SW);
 
@@ -200,9 +171,9 @@ void loop() {
     if (joy.justPressed()){
 
         // Принудительно обновить погоду, если текущий экран погоды
-        if (currentScreen == 4) {
+        if (currentScreen == 2) {
             weather.update();
-            drawScreen4();
+            drawScreen2();
         }
     }
     int dir = joy.getDirection();
@@ -211,7 +182,6 @@ void loop() {
             if (dir == 3) {
                 currentScreen--;
             if (currentScreen < 0) currentScreen = numScreens -1;
-                updateDisplay();
             } else if (dir == 4) {
                 currentScreen++;
                 if (currentScreen >= numScreens) currentScreen = 0; 
@@ -240,16 +210,7 @@ void loop() {
         // а также обновить главный экран (если на нём есть CO2)
         if (currentScreen == 0) drawScreen0();
     }
-    // 4. Обновление BMe280, TEMT6000 (раз в 2 секунды)
-    // if (millis() - lastSensorReadAll >= SENSOR_INTERVAL) {
-    //     bme280.read();
-    //     light.read();
-    //     lastSensorReadAll = millis();
-    //     if (currentScreen == 2) drawScreen2();
-    //     if (currentScreen == 3) drawScreen3();
-    //     if (currentScreen == 0) drawScreen0();
-    // }
-
+  
     // 5. Управление WiFi
     if (!wifiConnected) {
         if (WiFi.status() == WL_CONNECTED) {
@@ -284,27 +245,27 @@ void loop() {
         } 
     }
 
-    if (wifiConnected && weatherInitialized && currentScreen == 4) {
+    if (wifiConnected && weatherInitialized && currentScreen == 2) {
         if (millis() - lastWeatherUpdate >= WEATHER_INTERVAL) {
             weather.update();
             lastWeatherUpdate = millis(); 
         }
-        if (currentScreen == 4) drawScreen4();
+        if (currentScreen == 2) drawScreen2();
         }
-        if (wifiConnected && cryptoInitialized && currentScreen == 5) {
+        if (wifiConnected && cryptoInitialized && currentScreen == 3) {
             if (millis() - lastCryptoUpdate >= CRYPTO_INTERVAL){
             crypto.update();
             lastCryptoUpdate = millis();
             }
-            if (currentScreen == 5) drawScreen5();
+            if (currentScreen == 3) drawScreen3();
             
         }
-        if (wifiConnected && currencyInitialized && currentScreen == 5){
+        if (wifiConnected && currencyInitialized && currentScreen == 3){
             if (millis() - lastCurrencyUpdate >= CURRENCY_INTERVAL){
             currency.update();
             lastCurrencyUpdate = millis();
             }
-            if (currentScreen == 5) drawScreen5();
+            if (currentScreen == 3) drawScreen3();
         }
 
         unsigned long loopTime = micros() - loopStart;
@@ -337,8 +298,6 @@ void updateDisplay() {
     case 1:drawScreen1(); break;
     case 2:drawScreen2(); break;
     case 3:drawScreen3(); break;
-    case 4:drawScreen4(); break;
-    case 5:drawScreen5(); break;
     }
 }
 
@@ -374,6 +333,15 @@ void drawProgressBar(int x, int y, int w, int h, uint16_t bgColor, uint16_t fill
 
 // ====================== ГЛАВНЫЙ ЭКРАН ======================
 void drawScreen0() {
+    //погода
+    float weather_temp = weather.getTemp();
+    float weather_speed = weather.getWindSpeed();
+    //валюты
+    float btc = crypto.getBTCPrice();
+    float usd = currency.getUSDRate();
+    float btcCh = crypto.getBTCChange24h();
+
+
     int x0 = 13, y0 = 70, w = 210, h = 90, gap = 20;
 
     // ---- Статус сети WIFI ----
@@ -381,7 +349,7 @@ void drawScreen0() {
     if (wifiConnected) {
         tft.setTextColor(TFT_GREEN, TFT_BLACK, true);
         tft.setCursor(380, 10);
-        tft.print("WIFI");
+        tft.print("   WIFI   ");
     } else {
         tft.setTextColor(TFT_RED, TFT_BLACK, true);
         tft.setCursor(380, 10);
@@ -419,21 +387,29 @@ void drawScreen0() {
     tft.print(String(scd40.getTemperature(), 1) + "C / " + String(scd40.getHumidity(), 1) + "%  ");
 
 
-    // ---- Давление ----
+    // ---- Курс валют ----
     tft.drawRect(x0, y0 + h + gap, w, h, TFT_CYAN);
     tft.setTextColor(TFT_CYAN, TFT_BLACK, true);
-    tft.setCursor(x0 + 10, y0 + h + gap + 8);  tft.print("Давление ");
-    tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
-    tft.setCursor(x0 + 10, y0 + h + gap + 40);
-    tft.print(String("Заглушка"));
+    tft.setCursor(x0 + 10, y0 + h + gap + 8);  
+    tft.print("Курс валют ");
 
-    // ---- Освещённость ----
+    tft.setTextColor(TFT_CYAN, TFT_BLACK, true);
+    tft.setCursor(x0 + 10, y0 + h + gap + 40);
+    tft.println(String("USD: ")+ usd + String(" тг"));
+    tft.setCursor(x0 + 10, y0 + h + gap + 65);
+    tft.setTextColor(getColorForChange(btcCh), TFT_BLACK, true);
+
+    tft.print(String("BTC: ")+ btc + String("$"));
+
+    // ---- Погода ----
     tft.drawRect(x0 + w + gap, y0 + h + gap, w, h, TFT_YELLOW);
     tft.setTextColor(TFT_YELLOW, TFT_BLACK, true);
-    tft.setCursor(x0 + w + gap + 10, y0 + h + gap + 8);  tft.print("Уровень света    ");
+    tft.setCursor(x0 + w + gap + 10, y0 + h + gap + 8);  tft.print("Погода ");
     tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
     tft.setCursor(x0 + w + gap + 10, y0 + h + gap + 40);
-    tft.print(String("Заглушка"));
+    tft.println(String("Темп: ") + weather_temp + String("C"));
+    tft.setCursor(x0 + w + gap + 10, y0 + h + gap + 65);
+    tft.print(String("Ветер: ")+ weather_speed + String("м/с"));
 }
 
 // ====================== ЭКРАН CO2 ======================
@@ -479,81 +455,9 @@ void drawScreen1() {
     tft.print("Влажность:  "); tft.print(scd40.getHumidity(), 1);    tft.print(" %   ");
 }
 
-// ====================== ЭКРАН ДАВЛЕНИЯ ======================
-void drawScreen2() {
-    tft.setTextColor(TFT_MAGENTA, TFT_BLACK, true);
-    tft.setCursor(15, 15);
-    //setCyrillicFont(FONT_LARGE);
-    tft.print("Экран заглушка");
-
-    //float press = bme280.getPressure_hPa();
-    // tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
-    // tft.setCursor(25, 70);
-    // uint16_t color = TFT_DARKGREY;
-    // if      (press < 1010) color = TFT_ORANGE;
-    // else if (press > 1015) color = TFT_SKYBLUE;
-    // else                   color = TFT_PURPLE; 
-    // tft.setTextColor(color, TFT_BLACK, true);
-    // char buf[16];
-    // tftintf(buf, "%-7.1f hPa", press); // 1013.2, 7 символов
-    // tft.print(buf);
-
-
-    // // Строка статуса — фиксированная ширина пробелами
-    // tft.setTextColor(TFT_GREENYELLOW, TFT_BLACK, true);
-    // tft.setCursor(25, 140);
-    // if      (press > 1015) tft.print("Стабильное высокое давление          ");
-    // else if (press < 1010) tft.print("Низкое давление - риск дождя высокий ");
-    // else                   tft.print("Нормальное давление                  ");
-
-    // tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
-    // tft.setCursor(25, 190);
-    // tft.print("Влажность: ");
-    // tft.print(bme280.getHumidity(), 1); 
-    // tft.print(" %");
-
-    // tft.setTextSize(2);
-    // tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
-    // tft.setCursor(25, 230);
-    // tft.print("Температура: ");
-    // tft.print(bme280.getTemperature_C(), 1); 
-    // tft.print(" C");
-
-    // tft.setTextColor(TFT_DARKGREY, TFT_BLACK, true);
-    // tft.setCursor(25, 300);
-    // tft.print("Над уровнем моря: 1015 hPa");
-}
-
-// ====================== ЭКРАН ОСВЕЩЁННОСТИ ======================
-void drawScreen3() {
-    tft.setTextColor(TFT_YELLOW, TFT_BLACK, true);
-    tft.setCursor(15, 15);
-    tft.print("Экран заглушка");
-
-    // float lux = light.getLux();
-    // tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
-    // tft.setCursor(25, 100);
-    // char buf[12];
-    // tftintf(buf, "%-4.0f lx", lux);
-    // tft.print(buf);
-
-
-    // // Прогресс-бар
-    // float pct = constrain(lux / 2000.0, 0.0, 1.0);
-    // int bx = 25, by = 170, bw = 400, bh = 24;
-    // int fw = (int)(bw * pct);
-    // tft.fillRect(bx,      by, fw,      bh, TFT_YELLOW);
-    // tft.fillRect(bx + fw, by, bw - fw, bh, TFT_DARKGREY);
-    // tft.drawRect(bx,      by, bw,      bh, TFT_WHITE);
-
-    // tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
-    // tft.setCursor(25,  210); tft.print("Темно  ");
-    // tft.setCursor(195, 210); tft.print("Офис");
-    // tft.setCursor(350, 210); tft.print("Солнечно ");
-}
 
 // ====================== ЭКРАН ПОГОДЫ(API) ======================
-void drawScreen4() {
+void drawScreen2() {
     int tzOffset = weather.getTimezoneOffset();
     String sunriceStr = formatTimestamp(weather.getSunrise(), tzOffset);
     String sunsetStr = formatTimestamp(weather.getSunset(), tzOffset);
@@ -624,11 +528,11 @@ void drawScreen4() {
 }
 
 // ====================== ЭКРАН КРИПТЫ(API) ======================
-void drawScreen5(){
+void drawScreen3(){
 
     tft.setTextColor(TFT_GOLD, TFT_BLACK, true);
     tft.setCursor(15, 10);
-    tft.print("КРИПТА");
+    tft.print("Финансы");
 
     if (!crypto.isDataValid()){
         tft.setTextColor(TFT_RED, TFT_BLACK, true);
